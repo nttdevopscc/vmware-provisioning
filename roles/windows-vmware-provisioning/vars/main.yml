@@ -2,4 +2,4 @@
 timezone: 4
 windows_domain: nttapdemo.com
 windows_domain_admin: "nttmyadmin"
-windows_domain_admin_password: "{{ vault_windows_domain_admin_password }}"
+windows_domain_admin_password: "SDNlab123#@!"
