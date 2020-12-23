@@ -1,8 +1,5 @@
 ---
 - name: Clone a WINDOWS VM from template
-  include_vars:
-    dir: 'vars'
-    files_matching: 'ad_domain_pass.yml'
   vmware_guest:
     validate_certs: no
     esxi_hostname: "{{ vmware_esx_host }}"
