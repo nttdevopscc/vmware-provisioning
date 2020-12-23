@@ -27,6 +27,10 @@
     customization:
       hostname: "{{ vmware_hostname }}"
       dns_servers: "{{ vmware_dns_server }}"
+      timezone: "{{ timezone }}"
+      joindomain: "{{ windows_domain }}"
+      domainadmin: "{{ windows_domain_admin }}"
+      domainadminpassword: "{{ windows_domain_admin_password }}"
     template: "{{ vmware_template_name }}"
     wait_for_customization: yes
     wait_for_ip_address: yes
