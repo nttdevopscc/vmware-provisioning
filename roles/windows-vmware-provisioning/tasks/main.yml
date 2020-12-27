@@ -1,5 +1,5 @@
 ---
-- name: Clone a WINDOWS VM from template | If HDD2 is not defined
+- name: Clone a WINDOWS VM from template | Single Disk
   vmware_guest:
     validate_certs: no
     esxi_hostname: "{{ vmware_esx_host }}"
@@ -37,7 +37,7 @@
   register: deploy_vm
   when: disksize2 is not defined
 
-- name: Clone a WINDOWS VM from template | If HDD2 is defined
+- name: Clone a WINDOWS VM from template | Multiple Disk
   vmware_guest:
     validate_certs: no
     esxi_hostname: "{{ vmware_esx_host }}"
