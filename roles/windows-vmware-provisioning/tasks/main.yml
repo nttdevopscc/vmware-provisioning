@@ -9,9 +9,12 @@
     name: "{{ vmware_hostname }}"
     state: poweredon
     disk:
-    - size_gb: "{{ disksize }}"
+    - size_gb: "{{ disksize1 }}"
       type: "{{ disktype }}"
-      datastore: "{{ vmware_datastore }}"          
+      datastore: "{{ vmware_datastore }}"
+    - size_gb: "{{ disksize2 }}"
+      type: "{{ disktype }}"
+      datastore: "{{ vmware_datastore }}"           
     hardware:
       memory_mb: "{{ memory_mb }}"
       num_cpus: "{{ num_cpus }}"
