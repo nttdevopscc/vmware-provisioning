@@ -15,7 +15,7 @@
     - size_gb: "{{ disksize2 }}"
       type: "{{ disktype }}"
       datastore: "{{ vmware_datastore }}"
-    when: disksize2 is defined            
+      when: disksize2 is defined   
     hardware:
       memory_mb: "{{ memory_mb }}"
       num_cpus: "{{ num_cpus }}"
