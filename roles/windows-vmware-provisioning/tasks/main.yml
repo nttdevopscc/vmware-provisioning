@@ -43,7 +43,7 @@
     esxi_hostname: "{{ vmware_esx_host }}"
     datacenter: "{{ vmware_datacenter }}"
     datastore: "{{ vmware_datastore }}"
-    folder: /
+    folder: "iHIS POC/Windows"
     name: "{{ vmware_hostname }}"
     state: poweredon
     disk:
