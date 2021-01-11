@@ -7,16 +7,15 @@
         Content-Type: "application/json"
         Authorization: "Token {{ ipam_token }}"
       body:
-        name: "{{ inventory_hostname }}"
+        name: "{{ vmware_hostname }}"
         status: "{{ ipam_vm_status_value }}"
         cluster: "{{ ipam_vm_cluster_id }}"
         role: "{{ ipam_device_role_id }}"
         tenant: "{{ ipam_tenant_id }}"
         platform: "{{ ipam_platform_id }}"
-        primary_ip4: "{{ ipam_address_id }}"
         vcpus: "{{ num_cpus }}"
         memory: "{{ memory_mb }}"
-        disk: "{{ disksize }}"
+        disk: "{{ disksize1 }}"
         comments: "{{ host_comment }}"
       body_format: json
       return_content: yes
@@ -46,7 +45,7 @@
         Content-Type: "application/json"
         Authorization: "Token {{ ipam_token }}"
       body:
-        name: "{{ inventory_hostname }}'s interface: {{ host_interface_name }}"
+        name: "{{ vmware_hostname }}'s interface: {{ host_interface_name }}"
         virtual_machine: "{{ ipam_vm_id }}"
         enabled: true
         mtu: 1500
@@ -80,16 +79,32 @@
         Authorization: "Token {{ ipam_token }}"
       body:
         address: "{{ ipam_cidr_adress }}"
-        interface: "{{ ipam_vm_interface_id }}"
+        assigned_object_type: "virtualization.vminterface"
+        assigned_object_id: "{{ ipam_vm_interface_id }}"
         status: "{{ ipam_ip_address_activation_status_value }}"
-        description: "IP Address assigned for {{ inventory_hostname }} on its {{ host_interface_name }} interface"
+        description: "IP Address assigned for {{ vmware_hostname }} on its {{ host_interface_name }} interface"
+      body_format: json
+      return_content: yes
+      status_code: 200
+  
+  - name: Update primary IP assignment for VM
+    uri:
+      url: "{{ ipam_url }}/api/virtualization/virtual-machines/{{ ipam_vm_id }}/"
+      method: PUT
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body:
+        name: "{{ vmware_hostname }}"
+        primary_ip4: "{{ ipam_primary_address_id }}"
+        cluster: "{{ ipam_vm_cluster_id }}"
       body_format: json
       return_content: yes
       status_code: 200
   
   # - name: Update dB host record for Windows platform
   #   add_host:
-  #     # name: "{{ inventory_hostname }}.{{ windows_domain }}" 
+  #     # name: "{{ vmware_hostname }}.{{ windows_domain }}" 
   #     name: "{{ item }}.{{ hostvars[item].windows_domain }}" 
   #     inventory_dir: "{{ hostvars[item].inventory_dir }}"
   #     groups: "mssqlservers"
@@ -102,7 +117,7 @@
   
   # - name: Update dB host record for Linux platform
   #   add_host:
-  #     # name: "{{ inventory_hostname }}"
+  #     # name: "{{ vmware_hostname }}"
   #     name: "{{ item }}"
   #     inventory_dir: "{{  hostvars[item].inventory_dir  }}" 
   #     groups: "mysqlservers"
