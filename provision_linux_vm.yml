@@ -4,4 +4,11 @@
   connection: local
   gather_facts: no
   roles:
+    - michaelng.netboxipam
     - linux-vmware-provisioning
+  tasks:
+  - name: Update inventory records in IPAM
+    tags: ipam
+    include_role:
+      name:  michaelng.netboxipam
+      tasks_from: inventory.update
