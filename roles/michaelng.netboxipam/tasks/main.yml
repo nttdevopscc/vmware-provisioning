@@ -138,6 +138,7 @@
     include_tasks:
       file: single.ip.by.ansible.host.yml
     when: 
+      - inventory_hostname != "localhost"
       - ansible_host | ipaddr != False
       - host_interfaces is not defined
 
@@ -145,7 +146,7 @@
     include_tasks:
       file: single.ip.by.ipam.prefix.in.cidr.yml
     when: 
-      - ansible_host | ipaddr == False
+      - (inventory_hostname == "localhost" and ansible_host | ipaddr != False) or (- inventory_hostname != "localhost" and ansible_host | ipaddr == False)
       - host_interfaces is not defined
       - ipam_prefix_in_cidr is defined
 
