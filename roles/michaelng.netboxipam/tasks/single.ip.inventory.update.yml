@@ -96,7 +96,7 @@
         Authorization: "Token {{ ipam_token }}"
       body:
         name: "{{ vmware_hostname }}"
-        primary_ip4: "{{ ipam_primary_address_id }}"
+        primary_ip4: "{{ ipam_address_id }}"
         cluster: "{{ ipam_vm_cluster_id }}"
       body_format: json
       return_content: yes
