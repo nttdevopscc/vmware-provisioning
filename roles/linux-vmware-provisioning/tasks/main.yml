@@ -18,9 +18,9 @@
       scsi: paravirtual
     networks:
     - name: "{{ vmware_port_group }}"
-      ip: "{{ vmware_ipaddress }}"
-      netmask: "{{ vmware_netmask }}"
-      gateway: "{{ vmware_gateway }}"
+      ip: "{{ ipam_address }}"
+      netmask: "{{ ipam_address_network_mask }}"
+      gateway: "{{ ipam_gateway_address }}"
       type: static
       allow_guest_control: yes
       start_connected: yes
@@ -55,9 +55,9 @@
       scsi: paravirtual
     networks:
     - name: "{{ vmware_port_group }}"
-      ip: "{{ vmware_ipaddress }}"
-      netmask: "{{ vmware_netmask }}"
-      gateway: "{{ vmware_gateway }}"
+      ip: "{{ ipam_address }}"
+      netmask: "{{ ipam_address_network_mask }}"
+      gateway: "{{ ipam_gateway_address }}"
       type: static
       allow_guest_control: yes
       start_connected: yes

@@ -17,8 +17,8 @@
         - num_cpus != ""
         - memory_mb is defined
         - memory_mb != ""
-        - disksize is defined
-        - disksize != ""
+        - disksize1 is defined
+        - disksize1 != ""
         - host_comment is defined
         - host_comment != ""
       success_msg: |
@@ -29,7 +29,7 @@
         host_role: {{  host_role  }}
         num_cpus: {{  num_cpus  }}
         memory_mb: {{  memory_mb  }}
-        disksize: {{  disksize  }}
+        disksize1: {{  disksize1  }}
         host_comment: {{  host_comment  }}
       fail_msg: |
         "Please ensure the host based parameters are provided before running this task. The following parameters are either undefined or empty:
@@ -39,7 +39,7 @@
         4. host_role
         5. num_cpus
         6. memory_mb
-        7. disksize
+        7. disksize1
         8. host_comment
 
   - name: Validate if all the mandatory parameters are available for single interface update
