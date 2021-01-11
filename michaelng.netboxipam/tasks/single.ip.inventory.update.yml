@@ -1,0 +1,114 @@
+---
+  - name: Create VM record in IPAM
+    uri:
+      url: "{{ ipam_url }}/api/virtualization/virtual-machines/"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body:
+        name: "{{ inventory_hostname }}"
+        status: "{{ ipam_vm_status_value }}"
+        cluster: "{{ ipam_vm_cluster_id }}"
+        role: "{{ ipam_device_role_id }}"
+        tenant: "{{ ipam_tenant_id }}"
+        platform: "{{ ipam_platform_id }}"
+        primary_ip4: "{{ ipam_address_id }}"
+        vcpus: "{{ num_cpus }}"
+        memory: "{{ memory_mb }}"
+        disk: "{{ disksize }}"
+        comments: "{{ host_comment }}"
+      body_format: json
+      return_content: yes
+      status_code: 201
+    register: vm_record_creation_response
+  
+  - name: Store ID for VM record created at IPAM
+    set_fact:
+        ipam_vm_id: "{{ vm_record_creation_response.json.id }}"
+  
+  - name: Validate if the VM record ID received from API output is resolved accordingly
+    assert:
+      that:
+        - ipam_vm_id != ""
+      success_msg: |
+        "The VM record ipam_vm_id value validation passed with resolution shown below:
+        ipam_vm_id: {{  ipam_vm_id  }}"
+      fail_msg: |
+        "The VM record ipam_vm_id value validation failed with exception shown below:
+        ipam_vm_id: {{  ipam_vm_id  }}"
+
+  - name: Create VM interface in IPAM
+    uri:
+      url: "{{ ipam_url }}/api/virtualization/interfaces/"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body:
+        name: "{{ inventory_hostname }}'s interface: {{ host_interface_name }}"
+        virtual_machine: "{{ ipam_vm_id }}"
+        enabled: true
+        mtu: 1500
+        description: "{{  host_interface_description  }}"
+      body_format: json
+      return_content: yes
+      status_code: 201
+    register: vm_interface_creation_response
+
+  - name: Store ID for VM interface record created at IPAM
+    set_fact:
+        ipam_vm_interface_id: "{{ vm_interface_creation_response.json.id }}"
+  
+  - name: Validate if the VM interface record ID received from API output is resolved accordingly
+    assert:
+      that:
+        - ipam_vm_interface_id != ""
+      success_msg: |
+        "The VM interface record ipam_vm_interface_id value validation passed with resolution shown below:
+        ipam_vm_interface_id: {{  ipam_vm_interface_id  }}"
+      fail_msg: |
+        "The VM interface record ipam_vm_interface_id value validation failed with exception shown below:
+        ipam_vm_interface_id: {{  ipam_vm_interface_id  }}"
+
+  - name: Update IP address record in IPAM
+    uri:
+      url: "{{ ipam_url }}/api/ipam/ip-addresses/{{ ipam_address_id }}/"
+      method: PUT
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body:
+        address: "{{ ipam_cidr_adress }}"
+        interface: "{{ ipam_vm_interface_id }}"
+        status: "{{ ipam_ip_address_activation_status_value }}"
+        description: "IP Address assigned for {{ inventory_hostname }} on its {{ host_interface_name }} interface"
+      body_format: json
+      return_content: yes
+      status_code: 200
+  
+  - name: Update dB host record for Windows platform
+    add_host:
+      # name: "{{ inventory_hostname }}.{{ windows_domain }}" 
+      name: "{{ item }}.{{ hostvars[item].windows_domain }}" 
+      inventory_dir: "{{ hostvars[item].inventory_dir }}"
+      groups: "mssqlservers"
+      ansible_host: "{{  hostvars[item].ipam_address }}"
+      app_type: "Microsoft SQL Server"
+    when: 
+      - hostvars[item].host_role == "db-tier"
+      - hostvars[item].os_platform == "Windows"
+    with_items: "{{ ansible_play_hosts }}"
+  
+  - name: Update dB host record for Linux platform
+    add_host:
+      # name: "{{ inventory_hostname }}"
+      name: "{{ item }}"
+      inventory_dir: "{{  hostvars[item].inventory_dir  }}" 
+      groups: "mysqlservers"
+      ansible_host: "{{  hostvars[item].ipam_address }}"
+      app_type: "MySQL"
+    when: 
+      - hostvars[item].host_role == "db-tier"
+      - hostvars[item].os_platform == "Linux" 
+    with_items: "{{ ansible_play_hosts }}"

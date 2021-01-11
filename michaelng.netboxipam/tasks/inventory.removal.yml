@@ -1,0 +1,51 @@
+---
+  - name: Import vault vars for Tower deployment
+    include_vars: vault.yml  
+
+  - name: Retrieve tenants listing from IPAM
+    uri:
+      url: "{{  ipam_url  }}/api/tenancy/tenants/"
+      method: GET
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{  ipam_token  }}"
+      body_format: json
+      return_content: yes
+    register: tenant_list_output
+
+  - name: Compute tenant ID from API output
+    set_fact:
+       ipam_tenant_id: "{{  tenant_list_output.json|json_query(\"results[?name=='\" + tenants[0] + \"'].id | [0]\")  }}"
+  
+  - name: Validate if the provided IPAM Tenant name is found in IPAM records
+    assert:
+      that:
+        - ipam_tenant_id is defined
+        - ipam_tenant_id != ""
+      success_msg: "ipam_tenant_id validation passed and the Tenant name: {{  ipam_tenant_name  }} is resolved to: {{  ipam_tenant_id  }}"
+      fail_msg: "The provided ipam_tenant_name: \"{{  ipam_tenant_name  }}\" is not found in the IPAM records"
+  
+  - name: Retrieve VM listing from IPAM
+    uri:
+      url: "{{  ipam_url  }}/api/virtualization/virtual-machines/?name={{ inventory_hostname }}&tenant_id={{ ipam_tenant_id }}&has_primary_ip=true&status=decommissioning"
+      method: GET
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{  ipam_token  }}"
+      body_format: json
+      return_content: yes
+    register: vm_list_output
+
+  - name: Compute VM ID from API output
+    set_fact:
+       ipam_vm_id: "{{  vm_list_output.json|json_query(\"results[?name=='\" + inventory_hostname + \"'].id | [0]\")  }}"
+  
+  - name: Remove VM and all its associated interfaces + IP addresses record in IPAM
+    uri:
+      url: "{{  ipam_url  }}/api/virtualization/virtual-machines/{{ ipam_vm_id }}/"
+      method: DELETE
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{  ipam_token  }}"
+      body_format: json
+      status_code: 204

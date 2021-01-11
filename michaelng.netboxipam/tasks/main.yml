@@ -1,0 +1,152 @@
+---
+  - name: Import vault vars for Tower deployment
+    include_vars: vault.yml
+    
+  - name: Validate if the definitive vars are defined
+    fail:
+      msg: "Error: ansible_host, ipam_prefix_in_cidr or host_interfaces is undefined. Please ensure the ansible_host address is defined in host_vars OR IP prefix in CIDR notation (ex: 192.168.0.0/24) is prvoided either as a group_vars (if hosts are sharing common subnet) or host_vars (if individual subnet is required) under variable name ipam_prefix_in_cidr OR host_interfaces is defined in list before running this task"
+    when: ansible_host | ipaddr == False and ipam_prefix_in_cidr is not defined and host_interfaces is not defined
+
+  - name: Retrieve tenants listing from IPAM
+    uri:
+      url: "{{  ipam_url  }}/api/tenancy/tenants/"
+      method: GET
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{  ipam_token  }}"
+      body_format: json
+      return_content: yes
+    register: tenant_list_output
+    when: host_interfaces is not defined
+
+  - name: Compute tenant ID from API output
+    set_fact:
+       ipam_tenant_id: "{{  tenant_list_output.json|json_query(\"results[?name=='\" + ipam_tenant_name + \"'].id | [0]\")  }}"
+    when: host_interfaces is not defined
+  
+  - name: Validate if the provided IPAM Tenant name is found in IPAM records
+    assert:
+      that:
+        - ipam_tenant_id is defined
+        - ipam_tenant_id != ""
+      success_msg: "ipam_tenant_id validation passed and the Tenant name: {{  ipam_tenant_name  }} is resolved to: {{  ipam_tenant_id  }}"
+      fail_msg: "The provided ipam_tenant_name: \"{{  ipam_tenant_name  }}\" is not found in the IPAM records"
+    when: host_interfaces is not defined
+  
+  - name: Retrieve choices listing from IPAM prefixes
+    uri:
+      url: "{{  ipam_url  }}/api/ipam/prefixes/"
+      method: OPTIONS
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{  ipam_token  }}"
+      body_format: json
+      return_content: yes
+    register: prefixes_choices_list_output
+    when: host_interfaces is not defined
+  
+  - name: Retrieve choices listing from IPAM IP addresses
+    uri:
+      url: "{{  ipam_url  }}/api/ipam/ip-addresses/"
+      method: OPTIONS
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{  ipam_token  }}"
+      body_format: json
+      return_content: yes
+    register: ip_addresses_choices_list_output
+    when: host_interfaces is not defined
+  
+  # - name: output choices listing
+  #   debug:
+  #     msg: "choices_list_output: {{  choices_list_output.json  }}"
+  
+  - name: Compute required options value from choices pre-defined in IPAM
+    set_fact:
+       ipam_prefix_gateway_role_value: "{{  ip_addresses_choices_list_output.json|json_query(ipam_prefix_gateway_role_key)  }}"
+      #  ipam_prefix_address_family_value: "{{  choices_list_output.json|json_query(ipam_prefix_address_family_key)  }}"
+       ipam_prefix_reservation_status_value: "{{  prefixes_choices_list_output.json|json_query(ipam_prefix_reservation_status_key)  }}"
+      #  ipam_ip_address_family_value: "{{  prefixes_choices_list_output.json|json_query(ipam_ip_address_family_key)  }}"
+       ipam_ip_address_activation_status_value: "{{  ip_addresses_choices_list_output.json|json_query(ipam_ip_address_activation_status_key)  }}"
+       ipam_ip_address_reservation_status_value: "{{  ip_addresses_choices_list_output.json|json_query(ipam_ip_address_reservation_status_key)  }}"
+    vars:
+      ipam_prefix_gateway_role_key: "actions.POST.role.choices[?display_name=='{{  ipam_prefix_gateway_role_label  }}'].value | [0]"
+      # ipam_prefix_address_family_key: "\"prefix:family\"[?label=='{{  ipam_prefix_address_family_label  }}'].value | [0]"
+      ipam_prefix_reservation_status_key: "actions.POST.status.choices[?display_name=='{{  ipam_prefix_reservation_status_label  }}'].value | [0]"
+      # ipam_ip_address_family_key: "\"ip-address:family\"[?label=='{{  ipam_ip_address_family_label  }}'].value | [0]"
+      ipam_ip_address_activation_status_key: "actions.POST.status.choices[?display_name=='{{  ipam_ip_address_activation_status_label  }}'].value | [0]"
+      ipam_ip_address_reservation_status_key: "actions.POST.status.choices[?display_name=='{{  ipam_ip_address_reservation_status_label  }}'].value | [0]"
+    when: host_interfaces is not defined
+  
+  - name: Validate if all the Options value computed from choices pre-defined in IPAM are resolved accordingly
+    assert:
+      that:
+        - ipam_prefix_gateway_role_value != ""
+        # - ipam_prefix_address_family_value != ""
+        # - ipam_ip_address_family_value != ""
+        - ipam_prefix_reservation_status_value != ""
+        - ipam_ip_address_activation_status_value != ""
+        - ipam_ip_address_reservation_status_value != ""
+      success_msg: |
+        "All the Options value validation passed with resolution shown below:
+        ipam_prefix_gateway_role_label: {{  ipam_prefix_gateway_role_label  }} resolved to: {{  ipam_prefix_gateway_role_value  }}
+        ipam_prefix_reservation_status_label: {{  ipam_prefix_reservation_status_label  }} resolved to: {{  ipam_prefix_reservation_status_value  }}
+        ipam_ip_address_activation_status_label: {{  ipam_ip_address_activation_status_label  }} resolved to: {{  ipam_ip_address_activation_status_value  }}
+        ipam_ip_address_reservation_status_label: {{  ipam_ip_address_reservation_status_label  }} resolved to: {{  ipam_ip_address_reservation_status_value  }}"
+      fail_msg: |
+        "The Options value validation failed with resolution shown below:
+        ipam_prefix_gateway_role_label: {{  ipam_prefix_gateway_role_label  }} resolved to: {{  ipam_prefix_gateway_role_value  }}
+        ipam_prefix_reservation_status_label: {{  ipam_prefix_reservation_status_label  }} resolved to: {{  ipam_prefix_reservation_status_value  }}
+        ipam_ip_address_activation_status_label: {{  ipam_ip_address_activation_status_label  }} resolved to: {{  ipam_ip_address_activation_status_value  }}
+        ipam_ip_address_reservation_status_label: {{  ipam_ip_address_reservation_status_label  }} resolved to: {{  ipam_ip_address_reservation_status_value  }}"
+    when: host_interfaces is not defined
+
+  - name: Retrieve VRF listing from IPAM
+    uri:
+      url: "{{  ipam_url  }}/api/ipam/vrfs/"
+      method: GET
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{  ipam_token  }}"
+      body_format: json
+      return_content: yes
+    register: vrf_list_output
+    when: host_interfaces is not defined
+
+  - name: Compute VRF ID from API output
+    set_fact:
+       ipam_vrf_id: "{{  vrf_list_output.json|json_query(\"results[?name==`\" + ipam_prefix_vrf + \"`].id | [0]\")  }}"
+    when: host_interfaces is not defined
+
+  - name: Validate if VRF ID is defined properly when VRF specific detail is provided
+    assert:
+      that:
+        - ipam_vrf_id is defined
+        - ipam_vrf_id != ""
+      success_msg: "ipam_vrf_id validation passed and the VRF name: {{  ipam_prefix_vrf  }} is resolved to ID: {{  ipam_vrf_id  }}"
+      fail_msg: "The ipam_vrf_id is undefined OR equal to empty string. Please ensure the provided VRF name: {{  ipam_prefix_vrf  }} is correct and has been defined in IPAM accordingly"
+    when: 
+      - host_interfaces is not defined
+      - ipam_prefix_vrf != "null"
+
+  - name: Execute tasks of obtaining IP address based on host_interfaces defined 
+    include_tasks:
+      file: multiple.ip.by.host.interfaces.yml
+    when: host_interfaces is defined
+
+  - name: Execute tasks of obtaining IP address based on ansible_host defined 
+    include_tasks:
+      file: single.ip.by.ansible.host.yml
+    when: 
+      - ansible_host | ipaddr != False
+      - host_interfaces is not defined
+
+  - name: Execute tasks of obtaining IP address based on ipam_prefix_in_cidr defined 
+    include_tasks:
+      file: single.ip.by.ipam.prefix.in.cidr.yml
+    when: 
+      - ansible_host | ipaddr == False
+      - host_interfaces is not defined
+      - ipam_prefix_in_cidr is defined
+
+  

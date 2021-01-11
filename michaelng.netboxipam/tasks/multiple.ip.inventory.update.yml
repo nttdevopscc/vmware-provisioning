@@ -1,0 +1,145 @@
+---
+  - name: Derive primary tenant ID and IP from interface_details
+    set_fact:
+      ipam_primary_tenant_id: "{{  interface_details[0].ipam_tenant_id  }}"
+      ipam_primary_address_id: "{{  interface_details[0].ipam_address_id  }}"
+
+  - name: Create VM record in IPAM
+    uri:
+      url: "{{ ipam_url }}/api/virtualization/virtual-machines/"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body:
+        name: "{{ inventory_hostname }}"
+        status: "{{ ipam_vm_status_value }}"
+        cluster: "{{ ipam_vm_cluster_id }}"
+        role: "{{ ipam_device_role_id }}"
+        tenant: "{{ ipam_primary_tenant_id }}"
+        platform: "{{ ipam_platform_id }}"
+        vcpus: "{{ num_cpus }}"
+        memory: "{{ memory_mb }}"
+        disk: "{{ disksize }}"
+        comments: "{{ host_comment }}"
+      body_format: json
+      return_content: yes
+      status_code: 201
+    register: vm_record_creation_response
+  
+  - name: Store ID for VM record created at IPAM
+    set_fact:
+        ipam_vm_id: "{{ vm_record_creation_response.json.id }}"
+  
+  - name: Validate if the VM record ID received from API output is resolved accordingly
+    assert:
+      that:
+        - ipam_vm_id != ""
+      success_msg: |
+        "The VM record ipam_vm_id value validation passed with resolution shown below:
+        ipam_vm_id: {{  ipam_vm_id  }}"
+      fail_msg: |
+        "The VM record ipam_vm_id value validation failed with exception shown below:
+        ipam_vm_id: {{  ipam_vm_id  }}"
+
+  - name: Create VM interface in IPAM
+    uri:
+      url: "{{ ipam_url }}/api/virtualization/interfaces/"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body:
+        name: "{{ inventory_hostname }}'s interface: {{ item.name }}"
+        virtual_machine: "{{ ipam_vm_id }}"
+        enabled: true
+        mtu: 1500
+        description: "{{  item.description  }}"
+      body_format: json
+      return_content: yes
+      status_code: 201
+    with_items: "{{  interface_details  }}"
+    register: vm_interface_creation_response
+
+  - name: Store ID for VM interface record created at IPAM
+    set_fact:
+      interface_details: >
+        {%- set buffer = interface_details %}
+        {%- set _ = buffer[item.0].update({'ipam_vm_interface_id': ipam_vm_interface_id}) %}
+        {{- buffer -}}      
+    vars:
+        ipam_vm_interface_id: "{{ vm_interface_creation_response.results[item.0].json.id }}"
+    with_indexed_items: "{{  interface_details  }}"
+  
+  - name: Validate if the VM interface record ID received from API output is resolved accordingly
+    assert:
+      that:
+        - ("ipam_vm_interface_id" in item)
+        - item.ipam_vm_interface_id != ""
+      success_msg: |
+        "The VM interface record ipam_vm_interface_id value validation passed with resolution shown below:
+        ipam_vm_interface_id: {{  item.ipam_vm_interface_id  }}"
+      fail_msg: |
+        "The VM interface record ipam_vm_interface_id value validation failed with exception shown below:
+        ipam_vm_interface_id: {{  item.ipam_vm_interface_id  }}"
+    with_items: "{{  interface_details  }}"
+
+  - name: Update IP address record in IPAM
+    uri:
+      url: "{{ ipam_url }}/api/ipam/ip-addresses/{{ item.ipam_address_id }}/"
+      method: PUT
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body:
+        address: "{{ item.ipam_cidr_adress }}"
+        assigned_object_type: "virtualization.vminterface"
+        assigned_object_id: "{{ item.ipam_vm_interface_id }}"
+        # interface: "{{ item.ipam_vm_interface_id }}"
+        status: "{{ item.ipam_ip_address_activation_status_value }}"
+        description: "IP Address assigned for {{ inventory_hostname }} on its {{ item.name }} interface"
+      body_format: json
+      return_content: yes
+      status_code: 200
+    with_items: "{{  interface_details  }}"
+  
+  - name: Update primary IP assignment for VM
+    uri:
+      url: "{{ ipam_url }}/api/virtualization/virtual-machines/{{ ipam_vm_id }}/"
+      method: PUT
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body:
+        name: "{{ inventory_hostname }}"
+        primary_ip4: "{{ ipam_primary_address_id }}"
+        cluster: "{{ ipam_vm_cluster_id }}"
+      body_format: json
+      return_content: yes
+      status_code: 200
+  
+  - name: Update dB host record for Windows platform
+    add_host:
+      # name: "{{ inventory_hostname }}.{{ windows_domain }}" 
+      name: "{{ item }}.{{ hostvars[item].windows_domain }}" 
+      inventory_dir: "{{ hostvars[item].inventory_dir }}"
+      groups: "mssqlservers"
+      ansible_host: "{{  hostvars[item].interface_details[0].ipam_address }}"
+      app_type: "Microsoft SQL Server"
+    when: 
+      - hostvars[item].host_role == "db-tier"
+      - hostvars[item].os_platform == "Windows"
+    with_items: "{{ ansible_play_hosts }}"
+  
+  - name: Update dB host record for Linux platform
+    add_host:
+      # name: "{{ inventory_hostname }}"
+      name: "{{ item }}"
+      inventory_dir: "{{  hostvars[item].inventory_dir  }}" 
+      groups: "mysqlservers"
+      ansible_host: "{{  hostvars[item].interface_details[0].ipam_address }}"
+      app_type: "MySQL"
+    when: 
+      - hostvars[item].host_role == "db-tier"
+      - hostvars[item].os_platform == "Linux" 
+    with_items: "{{ ansible_play_hosts }}"

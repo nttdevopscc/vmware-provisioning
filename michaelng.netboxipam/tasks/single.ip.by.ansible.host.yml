@@ -1,0 +1,98 @@
+---
+  - name: Validate if the provided ansible_host input is in correct host IP notation without prefix
+    assert:
+      that:
+        - ansible_host | ipaddr('address') is defined
+        - ansible_host | ipaddr('prefix') == 32
+      success_msg: |
+        "ansible_host input validation passed:
+         - Provided value is: {{  ansible_host  }}
+         - Host address is: {{  ansible_host  }}
+         - Prefix length is: {{  ansible_host | ipaddr('prefix')  }}"
+      fail_msg: "The provided ansible_host: \"{{  ansible_host  }}\" is not provided in proper notation: host IP without prefix. Ex: 10.1.1.1"
+
+  - name: Retrieve IP addresses listing from IPAM
+    uri:
+      url: "{{ ipam_url }}/api/ipam/ip-addresses/?limit={{ ipam_record_limit  }}&tenant_id={{ ipam_tenant_id  }}&status={{ ipam_ip_address_reservation_status_value }}"
+      method: GET
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body_format: json
+      return_content: yes
+    register: ip_addresses_list_output
+
+  - name: Derive prefix for the provided ansible_host IP from API output
+    set_fact:
+      ipam_cidr_adress: "{{ (ipam_vrf_id != '') | ternary (ip_addresses_list_output.json |  to_json | from_json | json_query(\"results[?vrf.id==`\" + ipam_vrf_id + \"`].address | [?contains(@, '\" + ansible_host + \"')] | [0]\"), ip_addresses_list_output.json |  to_json | from_json | json_query(\"results[?vrf==`\" + ipam_prefix_vrf + \"`].address | [?contains(@, '\" + ansible_host + \"')] | [0]\")) }}"
+
+  - name: Validate if the ipam_cidr_adress is in correct host / prefix notation
+    assert:
+      that:
+        - ipam_cidr_adress != ""
+        - ipam_cidr_adress | ipaddr('address') is defined
+        - ipam_cidr_adress | ipaddr('prefix') < 32
+      success_msg: "ipam_cidr_adress validation passed and its value is: {{  ipam_cidr_adress  }}"
+      fail_msg: "The ipam_cidr_adress: \"{{  ipam_cidr_adress  }}\" is equal to empty string OR resolved to invalid format (not provided in proper CIDR notation: host / prefix. Ex: 10.0.0.0/24). Please ensure that the ansible_host IP address is being recorded in IPAN and its status is \"{{  ipam_ip_address_reservation_status_label  }}\""
+  
+  - name: Compute IP address ID, subnet prefix and prefix-length based on host IP address provided. Extract IP and network mask from the computed available IP
+    set_fact:
+        ipam_cidr_adress_id: "{{ (ipam_vrf_id != '') | ternary (ip_addresses_list_output.json|json_query(\"results[?vrf.id==`\" + ipam_vrf_id + \"`&&address=='\" + ipam_cidr_adress + \"'].id | [0]\"), ip_addresses_list_output.json|json_query(\"results[?vrf==`\" + ipam_prefix_vrf + \"`&&address=='\" + ipam_cidr_adress + \"'].id | [0]\")) }}"
+        ipam_prefix: "{{  ipam_cidr_adress | ipaddr('network')  }}"
+        ipam_prefix_length: "{{  ipam_cidr_adress | ipaddr('prefix')  }}"
+        ipam_address: "{{ ansible_host }}"
+        ipam_address_network_mask: "{{ ipam_cidr_adress | ipaddr('netmask') }}"
+
+  - name: Retrieve prefix gateway from IPAM
+    uri:
+      url: "{{ ipam_url }}/api/ipam/ip-addresses/?parent={{ ipam_prefix }}%2F{{ ipam_prefix_length }}&role={{ ipam_prefix_gateway_role_value }}"
+      method: GET
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body_format: json
+      return_content: yes
+    register: prefix_gateway_output
+
+  - name: Compute prefix gateway with VRF awareness from API output
+    set_fact:
+        ipam_gateway_cidr_address: "{{ (ipam_vrf_id != '') | ternary (prefix_gateway_output.json|json_query(\"results[?vrf.id==`\" + ipam_vrf_id + \"`].address | [0]\"), prefix_gateway_output.json|json_query(\"results[?vrf==`\" + ipam_prefix_vrf + \"`].address | [0]\")) }}" 
+  
+  - name: Validate if the retrieved Gateway IP from IPAM is valid
+    assert:
+      that:
+        - ipam_gateway_cidr_address != ""
+        - ipam_gateway_cidr_address | ipaddr != False
+      success_msg: "ipam_gateway_cidr_address validation passed and its value is: {{  ipam_gateway_cidr_address  }}"
+      fail_msg: "The ipam_gateway_cidr_address: \"{{  ipam_gateway_cidr_address  }}\" is equal to empty string OR resolved to invalid format. Please ensure that the provided ipam_gateway_cidr_address is defined in IPAN record and assigned its corresponding ipam_prefix_gateway_role_label: \"{{  ipam_prefix_gateway_role_label  }}\" role accordingly"
+  
+  - name: Extract gateway address from the computed gateway prefix
+    set_fact:
+        ipam_gateway_address: "{{ ipam_gateway_cidr_address.split('/')[0] }}"
+
+  - name: Update IP address reservation in IPAM
+    uri:
+      url: "{{ ipam_url }}/api/ipam/ip-addresses/{{  ipam_cidr_adress_id  }}/"
+      method: PUT
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ipam_token}}"
+      body:
+        address: "{{ ipam_cidr_adress }}"
+        status: "{{ ipam_ip_address_reservation_status_value }}"
+        description: "Reserved for host: {{ inventory_hostname }} and its interface: {{  host_interface_name  }}"
+      body_format: json
+      return_content: yes
+      status_code: 200
+    register: ip_reservation_response
+  
+  - name: Store ID for IP reserved at IPAM
+    set_fact:
+        ipam_address_id: "{{ ip_reservation_response.json.id }}"
+
+  - name: Validate if the reservation update is done successfully
+    assert:
+      that:
+        - ipam_address_id != ""
+      success_msg: "ipam_address_id validation passed and its value is: {{  ipam_address_id  }}"
+      fail_msg: "The ipam_address_id: \"{{  ipam_address_id  }}\" is equal to empty string. Please evaluate the ip_reservation_response: {{  ip_reservation_response  }} to find out possible cause of failure"

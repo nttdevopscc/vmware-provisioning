@@ -1,0 +1,234 @@
+---  
+  - name: Import vault vars for Tower deployment
+    include_vars: vault.yml 
+     
+  - name: Validate if all the mandatory host based parameters are available
+    assert:
+      that:
+        - ipam_vm_status_label is defined
+        - ipam_vm_status_label != ""
+        - compute_cluster is defined
+        - compute_cluster != ""
+        - os_platform is defined
+        - os_platform != ""
+        - host_role is defined
+        - host_role != ""
+        - num_cpus is defined
+        - num_cpus != ""
+        - memory_mb is defined
+        - memory_mb != ""
+        - disksize is defined
+        - disksize != ""
+        - host_comment is defined
+        - host_comment != ""
+      success_msg: |
+        "All the parameters validation passed with resolution shown below:
+        ipam_vm_status_label: {{  ipam_vm_status_label  }}
+        compute_cluster: {{  compute_cluster  }}
+        os_platform: {{  os_platform  }}
+        host_role: {{  host_role  }}
+        num_cpus: {{  num_cpus  }}
+        memory_mb: {{  memory_mb  }}
+        disksize: {{  disksize  }}
+        host_comment: {{  host_comment  }}
+      fail_msg: |
+        "Please ensure the host based parameters are provided before running this task. The following parameters are either undefined or empty:
+        1. ipam_vm_status_label
+        2. compute_cluster
+        3. os_platform
+        4. host_role
+        5. num_cpus
+        6. memory_mb
+        7. disksize
+        8. host_comment
+
+  - name: Validate if all the mandatory parameters are available for single interface update
+    assert:
+      that:
+        - host_interface_name is defined
+        - host_interface_name != ""
+        - host_interface_description is defined
+        - host_interface_description != ""
+        - ipam_tenant_id is defined
+        - ipam_tenant_id != ""
+        - ipam_cidr_adress is defined
+        - ipam_cidr_adress != ""
+        - ipam_address is defined
+        - ipam_address != ""
+        - ipam_address_id is defined
+        - ipam_address_id != ""
+        - ipam_ip_address_activation_status_value is defined
+        - ipam_ip_address_activation_status_value != ""
+      success_msg: |
+        "All the parameters validation passed with resolution shown below:
+        host_interface_name: {{  host_interface_name  }}
+        host_interface_description: {{  host_interface_description  }}
+        ipam_tenant_id: {{  ipam_tenant_id  }}
+        ipam_cidr_adress: {{  ipam_cidr_adress  }}
+        ipam_address: {{  ipam_address  }}
+        ipam_address_id: {{  ipam_address_id  }}
+        ipam_ip_address_activation_status_value: {{  ipam_ip_address_activation_status_value  }}
+      fail_msg: |
+        "Please ensure the IP retrieval & reservation play has been executed first and completed successfully before running this task. The following parameters are either undefined or empty:
+        1. host_interface_name
+        2. host_interface_description
+        3. ipam_tenant_id
+        4. ipam_cidr_adress
+        5. ipam_address
+        6. ipam_address_id
+        7. ipam_ip_address_activation_status_value
+    when: (ansible_host | ipaddr != False and host_interfaces is not defined) or (ipam_prefix_in_cidr is defined and host_interfaces is not defined)
+  
+  - name: Validate if all the mandatory parameters are available for multiple interfaces update
+    assert:
+      that:
+        - item.name is defined
+        - item.name != ""
+        - item.description is defined
+        - item.description != ""
+        - item.ipam_tenant_id is defined
+        - item.ipam_tenant_id != ""
+        - item.ipam_cidr_adress is defined
+        - item.ipam_cidr_adress != ""
+        - item.ipam_address is defined
+        - item.ipam_address != ""
+        - item.ipam_address_id is defined
+        - item.ipam_address_id != ""
+        - item.ipam_ip_address_activation_status_value is defined
+        - item.ipam_ip_address_activation_status_value != ""
+      success_msg: |
+        "All the parameters validation passed with resolution shown below:
+        name (interace name): {{  item.name  }}
+        description (interface description): {{  item.description  }}
+        ipam_tenant_id: {{  item.ipam_tenant_id  }}
+        ipam_cidr_adress: {{  item.ipam_cidr_adress  }}
+        ipam_address: {{  item.ipam_address  }}
+        ipam_address_id: {{  item.ipam_address_id  }}
+        ipam_ip_address_activation_status_value: {{  item.ipam_ip_address_activation_status_value  }}
+      fail_msg: |
+        "Please ensure the IP retrieval & reservation play has been executed first and completed successfully before running this task. The following parameters are either undefined or empty:
+        1. name
+        2. description
+        3. ipam_tenant_id
+        4. ipam_cidr_adress
+        5. ipam_address
+        6. ipam_address_id
+        7. ipam_ip_address_activation_status_value
+    with_items: "{{  interface_details  }}"
+    when: host_interfaces is defined
+
+  - name: Retrieve VM choices listing from IPAM
+    uri:
+      url: "{{  ipam_url  }}/api/virtualization/virtual-machines/" 
+      method: OPTIONS
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{  ipam_token  }}"
+      body_format: json
+      return_content: yes
+    register: vm_choices_list_output
+  
+  - name: Compute required VM options value from choices pre-defined in IPAM
+    set_fact:
+       ipam_vm_status_value: "{{  vm_choices_list_output.json | json_query(ipam_vm_status_key)  }}"
+    vars:
+      ipam_vm_status_key: "actions.POST.status.choices[?display_name=='{{  ipam_vm_status_label  }}'].value | [0]"
+  
+  - name: Validate if the VM options value computed from choices pre-defined in IPAM are resolved accordingly
+    assert:
+      that:
+        - ipam_vm_status_value != ""
+      success_msg: |
+        "All the VM options value validation passed with resolution shown below:
+        ipam_vm_status_label: {{  ipam_vm_status_label  }} resolved to: {{  ipam_vm_status_value  }}"
+      fail_msg: |
+        "The VM options value validation failed with exception shown below:
+        ipam_vm_status_label: {{  ipam_vm_status_label  }} resolved to: {{  ipam_vm_status_value  }}"
+
+  - name: Retrieve VM cluster listing from IPAM
+    uri:
+      url: "{{ ipam_url }}/api/virtualization/clusters/"
+      method: GET
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body_format: json
+      return_content: yes
+    register: vm_cluster_list_output
+  
+  - name: Compute VM cluster ID from API output
+    set_fact:
+        ipam_vm_cluster_id: "{{ vm_cluster_list_output.json | json_query(\"results[?name=='\" + compute_cluster + \"'].id | [0]\") }}"
+  
+  - name: Validate if the VM cluster ID computed from API output is resolved accordingly
+    assert:
+      that:
+        - ipam_vm_cluster_id != ""
+      success_msg: |
+        "The VM ipam_vm_cluster_id value validation passed with resolution shown below:
+        ipam_vm_cluster_id: {{  ipam_vm_cluster_id  }}"
+      fail_msg: |
+        "The VM ipam_vm_cluster_id value validation failed with exception shown below:
+        ipam_vm_cluster_id: {{  ipam_vm_cluster_id  }}"
+
+  - name: Retrieve platform listing from IPAM
+    uri:
+      url: "{{ ipam_url }}/api/dcim/platforms/"
+      method: GET
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body_format: json
+      return_content: yes
+    register: platform_list_output
+  
+  - name: Compute platform ID from API output
+    set_fact:
+        ipam_platform_id: "{{ platform_list_output.json | json_query(\"results[?name=='\" + os_platform + \"'].id | [0]\") }}"
+  
+  - name: Validate if the platform ID computed from API output is resolved accordingly
+    assert:
+      that:
+        - ipam_platform_id != ""
+      success_msg: |
+        "The platform ipam_platform_id value validation passed with resolution shown below:
+        ipam_platform_id: {{  ipam_platform_id  }}"
+      fail_msg: |
+        "The platform ipam_platform_id value validation failed with exception shown below:
+        ipam_platform_id: {{  ipam_platform_id  }}"
+  
+  - name: Retrieve device role listing from IPAM
+    uri:
+      url: "{{ ipam_url }}/api/dcim/device-roles/"
+      method: GET
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body_format: json
+      return_content: yes
+    register: device_role_list_output
+  
+  - name: Compute device role ID from API output
+    set_fact:
+        ipam_device_role_id: "{{ device_role_list_output.json | json_query(\"results[?name=='\" + host_role + \"'].id | [0]\") }}"
+
+  - name: Validate if the device role ID computed from API output is resolved accordingly
+    assert:
+      that:
+        - ipam_device_role_id != ""
+      success_msg: |
+        "The device role ipam_device_role_id value validation passed with resolution shown below:
+        ipam_device_role_id: {{  ipam_device_role_id  }}"
+      fail_msg: |
+        "The device role ipam_device_role_id value validation failed with exception shown below:
+        ipam_device_role_id: {{  ipam_device_role_id  }}"
+  
+  - name: Execute tasks of updating inventory records based on host_interfaces defined 
+    include_tasks:
+      file: multiple.ip.inventory.update.yml
+    when: host_interfaces is defined
+
+  - name: Execute tasks of updating inventory records based on ansible_host OR ipam_prefix_in_cidr defined 
+    include_tasks:
+      file: single.ip.inventory.update.yml
+    when: (host_interfaces is not defined and ansible_host | ipaddr != False) or (host_interfaces is not defined and ipam_prefix_in_cidr is defined)

@@ -1,0 +1,251 @@
+---
+  - name: Retrieve prefixes listing from IPAM
+    uri:
+      url: "{{ ipam_url }}/api/ipam/prefixes/?limit={{ ipam_record_limit }}&&status={{ item.ipam_prefix_reservation_status_value }}&&tenant_id={{  item.ipam_tenant_id  }}"
+      method: GET
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body_format: json
+      return_content: yes
+    when: 
+      - ("ipam_prefix_in_cidr" in item)
+      - (item.ipam_prefix_in_cidr != '')
+      - (item.ipam_address_in_cidr == '')
+    with_items: "{{  interface_details  }}"
+    register: prefix_list_output
+
+  - name: Compute VRF aware subnet prefix ID from API output
+    set_fact:
+      interface_details: >
+        {%- set buffer = interface_details %}
+        {%- set _ = buffer[item.0].update({'ipam_prefix_id': ipam_prefix_id}) %}
+        {{- buffer -}}
+    vars:      
+      ipam_prefix_id: "{{  (item.1.ipam_vrf_id != 'null') | ternary (prefix_list_output.results[item.0].json | json_query(\"results[?prefix=='\" + item.1.ipam_prefix_in_cidr + \"'&&vrf.id==`\" + item.1.ipam_vrf_id + \"`].id | [0]\"), prefix_list_output.results[item.0].json  |  json_query(\"results[?prefix=='\" + item.1.ipam_prefix_in_cidr + \"'&&vrf==`\" + item.1.ipam_prefix_vrf + \"`].id | [0]\"))  }}"
+    when: 
+      - ("ipam_prefix_in_cidr" in item.1)
+      - (item.1.ipam_prefix_in_cidr != '')
+      - (item.1.ipam_address_in_cidr == '')
+    with_indexed_items: "{{  interface_details  }}"
+
+  - name: Validate if IPAM prefix ID is defined
+    assert:
+      that:
+        - ("ipam_prefix_id" in item)
+        - item.ipam_prefix_id != ""
+      success_msg: "ipam_prefix_id validation passed and its value is: {{  item.ipam_prefix_id  }}"
+      fail_msg: "The ipam_prefix_id is undefined OR equal to empty string. Please ensure the provided IPAM prefix in CIDR notation is correct and has been defined in IPAM accordingly"
+    when: 
+      - ("ipam_prefix_in_cidr" in item)
+      - (item.ipam_prefix_in_cidr != '')
+      - (item.ipam_address_in_cidr == '')
+    with_items: "{{  interface_details  }}"
+
+  - name: Compute subnet prefix and prefix-length based on prefix address provided
+    set_fact:
+      interface_details: >
+        {%- set buffer = interface_details %}
+        {%- set _ = buffer[item.0].update({'ipam_prefix': ipam_prefix}) %}
+        {%- set _ = buffer[item.0].update({'ipam_prefix_length': ipam_prefix_length}) %}
+        {{- buffer -}}
+    vars:
+        ipam_prefix: "{{  item.1.ipam_prefix_in_cidr | ipaddr('network')  }}"
+        ipam_prefix_length: "{{  item.1.ipam_prefix_in_cidr | ipaddr('prefix')  }}"
+    when: 
+      - ("ipam_prefix_in_cidr" in item.1)
+      - (item.1.ipam_prefix_in_cidr != '')
+      - (item.1.ipam_address_in_cidr == '')
+    with_indexed_items: "{{  interface_details  }}"
+
+  - name: Retrieve the prefix available IP listing from IPAM
+    uri:
+      url: "{{ ipam_url }}/api/ipam/prefixes/{{ item.ipam_prefix_id }}/available-ips/?limit={{ ipam_record_limit  }}"
+      method: GET
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body_format: json
+      return_content: yes
+    when: 
+      - ("ipam_prefix_in_cidr" in item)
+      - (item.ipam_prefix_in_cidr != '')
+      - (item.ipam_address_in_cidr == '')
+    with_items: "{{  interface_details  }}"
+    register: available_ip_listing_output
+
+  - name: Compute available IP with VRF awareness from API output
+    set_fact:
+      interface_details: >
+        {%- set buffer = interface_details %}
+        {%- set _ = buffer[item.0].update({'ipam_cidr_adress': ipam_cidr_adress}) %}
+        {{- buffer -}}              
+    vars:
+        # host_group_name: "{{  (ansible_host_group_name == '' and group_names | length > 0) | ternary(group_names[0], ansible_host_group_name)  }}"
+        # host_index: "{{  (host_group_name != '') | ternary (groups[host_group_name].index(inventory_hostname), 0)  }}"
+        prefix_index: "{{  hostvars['localhost']['group_wide_unique_prefix'][item.1['ipam_prefix_in_cidr']].index(inventory_hostname)   }}"
+        ipam_cidr_adress: "{{ (item.1.ipam_vrf_id != 'null') | ternary (available_ip_listing_output.results[item.0].json | json_query(\"[?vrf.id==`\" + item.1.ipam_vrf_id + \"`].address | [\" + prefix_index + \"]\"), available_ip_listing_output.results[item.0].json | json_query(\"[?vrf==`\" + item.1.ipam_prefix_vrf + \"`].address | [\" + prefix_index + \"]\")) }}"
+    when: 
+      - ("ipam_prefix_in_cidr" in item.1)
+      - (item.1.ipam_prefix_in_cidr != '')
+      - (item.1.ipam_address_in_cidr == '')
+    with_indexed_items: "{{  interface_details  }}"
+
+  - name: Validate if the computed available IP from IPAM is valid
+    assert:
+      that:
+        - ("ipam_cidr_adress" in item)
+        - item.ipam_cidr_adress | ipaddr != False
+      success_msg: "ipam_cidr_adress validation passed and its value is: {{  item.ipam_cidr_adress  }}"
+      fail_msg: "The ipam_cidr_adress: \"{{  item.ipam_cidr_adress  }}\" is equal to empty string OR resolved to invalid format. Please ensure that the provided prefix has available IP addresses in the IPAM database"
+    when: 
+      - ("ipam_prefix_in_cidr" in item)
+      - (item.ipam_prefix_in_cidr != '')
+      - (item.ipam_address_in_cidr == '')
+    with_items: "{{  interface_details  }}"
+
+  - name: Extract IP and network mask from the computed available IP
+    set_fact:
+      interface_details: >
+        {%- set buffer = interface_details %}
+        {%- set _ = buffer[item.0].update({'ipam_address': ipam_address}) %}
+        {%- set _ = buffer[item.0].update({'ipam_address_network_mask': ipam_address_network_mask}) %}
+        {{- buffer -}}   
+    vars:
+        ipam_address: "{{ item.1.ipam_cidr_adress.split('/')[0] }}"
+        ipam_address_network_mask: "{{ item.1.ipam_cidr_adress | ipaddr('netmask') }}"
+    when: 
+      - ("ipam_prefix_in_cidr" in item.1)
+      - (item.1.ipam_prefix_in_cidr != '')
+      - (item.1.ipam_address_in_cidr == '')
+    with_indexed_items: "{{  interface_details  }}"
+
+  - name: Retrieve prefix gateway from IPAM
+    uri:
+      url: "{{ ipam_url }}/api/ipam/ip-addresses/?parent={{  item.ipam_prefix  }}%2F{{  item.ipam_prefix_length  }}&role={{  item.ipam_prefix_gateway_role_value  }}"
+      method: GET
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body_format: json
+      return_content: yes
+    when: 
+      - ("ipam_prefix_in_cidr" in item)
+      - (item.ipam_prefix_in_cidr != '')
+      - (item.ipam_address_in_cidr == '')
+      - (item.ipam_gateway_required == 'true')
+    with_items: "{{  interface_details  }}"
+    register: prefix_gateway_output
+
+  - name: Compute prefix gateway with VRF awareness from API output
+    set_fact:
+      interface_details: >
+        {%- set buffer = interface_details %}
+        {%- set _ = buffer[item.0].update({'ipam_gateway_cidr_address': ipam_gateway_cidr_address}) %}
+        {{- buffer -}}   
+    vars:
+        ipam_gateway_cidr_address: "{{ (item.1.ipam_vrf_id != 'null') | ternary (prefix_gateway_output.results[item.0].json | json_query(\"results[?vrf.id==`\" + item.1.ipam_vrf_id + \"`].address | [0]\"), prefix_gateway_output.results[item.0].json | json_query(\"results[?vrf==`\" + item.1.ipam_prefix_vrf + \"`].address | [0]\")) }}" 
+    when: 
+      - ("ipam_prefix_in_cidr" in item.1)
+      - (item.1.ipam_prefix_in_cidr != '')
+      - (item.1.ipam_address_in_cidr == '')
+      - (item.1.ipam_gateway_required == 'true')
+    with_indexed_items: "{{  interface_details  }}"
+
+  - name: Validate if the retrieved Gateway IP from IPAM is valid
+    assert:
+      that:
+        - ("ipam_gateway_cidr_address" in item)
+        - item.ipam_gateway_cidr_address | ipaddr != False
+      success_msg: "ipam_gateway_cidr_address validation passed and its value is: {{  item.ipam_gateway_cidr_address  }}"
+      fail_msg: "The ipam_gateway_cidr_address: \"{{  item.ipam_gateway_cidr_address  }}\" is equal to empty string OR resolved to invalid format. Please ensure that the provided ipam_gateway_cidr_address is defined in IPAN record and assigned its corresponding ipam_prefix_gateway_role_label: \"{{  item.ipam_prefix_gateway_role_label  }}\" role accordingly"
+    when: 
+      - ("ipam_prefix_in_cidr" in item)
+      - (item.ipam_prefix_in_cidr != '')
+      - (item.ipam_address_in_cidr == '')
+      - (item.ipam_gateway_required == 'true')
+    with_items: "{{  interface_details  }}"
+
+  - name: Extract gateway address from the computed gateway prefix
+    set_fact:
+      interface_details: >
+        {%- set buffer = interface_details %}
+        {%- set _ = buffer[item.0].update({'ipam_gateway_address': ipam_gateway_address}) %}
+        {{- buffer -}}   
+    vars:
+        ipam_gateway_address: "{{ item.1.ipam_gateway_cidr_address.split('/')[0] }}"
+    when: 
+      - ("ipam_prefix_in_cidr" in item.1)
+      - (item.1.ipam_prefix_in_cidr != '')
+      - (item.1.ipam_address_in_cidr == '')
+      - (item.1.ipam_gateway_required == 'true')
+    with_indexed_items: "{{  interface_details  }}"
+
+  - name: Reserve IP address in IPAM 
+    uri:
+      url: "{{ ipam_url }}/api/ipam/ip-addresses/"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ipam_token}}"
+      body:
+        address: "{{ item.ipam_cidr_adress }}"
+        tenant: "{{ item.ipam_tenant_id }}"
+        vrf: null
+        status: "{{ item.ipam_ip_address_reservation_status_value }}"
+        description: "Reserved for host: {{ inventory_hostname }} and its interface: {{  item.name  }}"
+      body_format: json
+      return_content: yes
+      status_code: 201
+    when: 
+      - ("ipam_prefix_in_cidr" in item)
+      - (item.ipam_prefix_in_cidr != '')
+      - (item.ipam_address_in_cidr == '')
+    with_items: "{{  interface_details  }}"
+    register: ip_reservation_response
+  
+  - name: Store ID for IP reserved at IPAM
+    set_fact:
+      interface_details: >
+        {%- set buffer = interface_details %}
+        {%- set _ = buffer[item.0].update({'ipam_address_id': ipam_address_id}) %}
+        {{- buffer -}}   
+    vars:
+        ipam_address_id: "{{ ip_reservation_response.results[item.0].json.id }}"
+    when: 
+      - ("ipam_prefix_in_cidr" in item.1)
+      - (item.1.ipam_prefix_in_cidr != '')
+      - (item.1.ipam_address_in_cidr == '')
+    with_indexed_items: 
+      - "{{  interface_details  }}"
+  
+  - name: Validate if the reservation is done successfully
+    assert:
+      that:
+        - ("ipam_address_id" in item.1)
+        - item.1.ipam_address_id != ""
+      success_msg: "ipam_address_id validation passed and its value is: {{  item.1.ipam_address_id  }}"
+      fail_msg: "The ipam_address_id: \"{{  item.1.ipam_address_id  }}\" is equal to empty string. Please evaluate the ip_reservation_response: {{  ip_reservation_response.results[item.0]  }} to find out possible cause of failure"
+    when: 
+      - ("ipam_prefix_in_cidr" in item.1)
+      - (item.1.ipam_prefix_in_cidr != '')
+      - (item.1.ipam_address_in_cidr == '')
+    with_indexed_items: "{{  interface_details  }}"
+  
+  - name: Update the IP reservation with VRF details
+    uri:
+      url: "{{ ipam_url }}/api/ipam/ip-addresses/{{ item.ipam_address_id }}/"
+      method: PUT
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ipam_token}}"
+      body:
+        address: "{{ item.ipam_cidr_adress }}"
+        vrf: "{{ item.ipam_vrf_id }}"
+      body_format: json
+      return_content: yes
+      status_code: 200
+    when: 
+      - ("ipam_vrf_id" in item)
+      - (item.ipam_vrf_id != 'null')
+    with_items: "{{  interface_details  }}"

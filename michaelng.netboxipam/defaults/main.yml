@@ -1,0 +1,17 @@
+---
+# null - no vrf or global routing table, else specify the specific vrf to be used
+ipam_prefix_vrf: "null"
+# valid options are Active / Offline / Staged  - refer to the VM status label being assgined in IPAM
+ipam_vm_status_label: "Active"
+# The current status label assigned to the prefix address recorded in IPAM that will be referred during reservation phase. Valid options are Active / Reserved / Container / Deprecated  - refer to the prefix status label being assgined in IPAM
+ipam_prefix_reservation_status_label: "Active"
+# The label to be defined in IPAM to indicate the status for an IP Address once it has been reserved successfully OR its current status recorded in IPAM if single IP by ansible / multiple IP by host interfaces are referred. Valid options are Active / Reserved / DHCP / Deprecated - refer to the IP address status label being assgined in IPAM
+ipam_ip_address_reservation_status_label: "Reserved"
+# The label to be defined in IPAM to indicate the status for an IP Address once it has been assigned and VM created successfully. Valid options are Active / Reserved / Deprecated / DHCP / SLAAC (IPv6 only)
+ipam_ip_address_activation_status_label: "Active"
+# The current gateway address role label defined in IPAM. Valid options are VIP / Loopback / Secondary / Anycast / VRRP / HSRP/ GLBP / CARP - refer to the role label being assgined to Gateway address in IPAM
+ipam_prefix_gateway_role_label: "VIP"
+# valid options based on tenants that have been defined in IPAM
+ipam_tenant_name: "iHIS"
+# provide the specific group name (ex: winservers) that the host belongs to during the execution of this play, default to first index if the group name is NOT provided. This is needed specifically when the host belongs to multiple groups
+ansible_host_group_name: ""

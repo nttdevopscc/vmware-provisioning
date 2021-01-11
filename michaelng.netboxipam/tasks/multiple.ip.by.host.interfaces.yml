@@ -1,0 +1,226 @@
+---
+  - name: Validate the mandatory parameters are defined in host_interfaces
+    fail:
+      msg: "Error: Required parameters are not defined. 1) name: - 'inteface name. Ex: ens160' 2) description: 'short description of this interface' 3) ipam_prefix_in_cidr: 'network prefix address in CIDR notation. Ex: 10.0.0.0/24 (Required if ipam_address_in_cidr is not defined)' 4) ipam_address_in_cidr: 'IP address in CIDR notation: Ex: 10.1.1.1/24 (Required if ipam_prefix_in_cidr is not defined)'  before running this task"
+    when: ("name" not in item) or 
+          ("description" not in item) or 
+          ("ipam_prefix_in_cidr" not in item and "ipam_address_in_cidr" not in item)
+    with_items: "{{  host_interfaces  }}"
+
+  - name: Prepare pre-check for uniqueness of the prefix or IP provided
+    set_fact:
+      unique_prefix: "{{ unique_prefix  | combine({which_prefix : 1 + unique_prefix.get(which_prefix, 0)}) }}"
+      unique_prefix_keys: "{{  unique_prefix_keys + [{'ip': which_prefix, 'host': inventory_hostname}]  }}"
+    vars:
+      unique_prefix: {}
+      which_prefix: "{{  (\"ipam_prefix_in_cidr\" in item) | ternary(item.ipam_prefix_in_cidr, item.ipam_address_in_cidr)  }}"
+      unique_prefix_keys: []
+    # when: host_interfaces | length > 1
+    with_items: "{{  host_interfaces  }}"
+  
+  - name: Validate if the provided prefix or IP is unique
+    assert:
+      that:
+        - (item.value == 1)
+      success_msg: "No duplicate prefix or IP found based on the provided input"
+      fail_msg: "Duplicate prefix or IP found: {{  item.key  }} with occurrences of: {{  item.value  }}"
+    # when: host_interfaces | length > 1
+    # loop: "{{  unique_prefix | default({}) | dict2items  }}"
+    loop: "{{  unique_prefix | dict2items  }}"
+
+  - name: Output unique_prefix_keys
+    debug:
+      msg: "unique_prefix_keys:  {{  unique_prefix_keys  }}"
+  
+  - name: Combine unique_prefix_keys to prepare for the group wide prefix or IP uniqueness check
+    set_fact:
+      group_wide_unique_prefix_keys: "{{ group_wide_unique_prefix_keys | default([]) + hostvars[item]['unique_prefix_keys']  }}"
+    loop: "{{  groups[group_names[0]]  }}"
+    delegate_to: localhost
+    delegate_facts: true
+    run_once: true
+    when: group_names | length > 0
+
+  - name: Output group_wide_unique_prefix_keys
+    debug:
+      msg: "group_wide_unique_prefix_keys:  {{  hostvars['localhost']['group_wide_unique_prefix_keys']  }}"
+
+  - name: Compute group wide prefix or IP uniqueness count
+    set_fact:
+      # group_wide_unique_prefix: "{{ group_wide_unique_prefix | combine({item.ip: 1 + group_wide_unique_prefix.get(item.ip, 0), 'hosts': group_wide_unique_prefix.get('hosts', []) + [item.host]})  }}"
+      group_wide_unique_prefix: "{{ group_wide_unique_prefix | combine({item.ip: group_wide_unique_prefix.get(item.ip, []) + [item.host]})  }}"
+    vars:
+      group_wide_unique_prefix: {}
+    loop: "{{  hostvars['localhost']['group_wide_unique_prefix_keys']  }}"
+    delegate_to: localhost
+    delegate_facts: true
+    run_once: true
+    when: group_names | length > 0  
+
+  - name: Output group_wide_unique_prefix
+    debug:
+      msg: "group_wide_unique_prefix:  {{  hostvars['localhost']['group_wide_unique_prefix']  }}"
+    
+  - name: Polyfill optional parameters into interface_details
+    set_fact:
+      interface_details: "{{  interface_details | default([]) + [{'name': item.name,
+         'description': item.description,
+         'ipam_gateway_required': (\"ipam_gateway_required\" not in item) | ternary ('false', item.ipam_gateway_required),
+         'ipam_cluster_ip_required': (\"ipam_cluster_ip_required\" not in item) | ternary ('false', item.ipam_cluster_ip_required),
+         'ipam_prefix_in_cidr': (\"ipam_prefix_in_cidr\" not in item) | ternary ('', item.ipam_prefix_in_cidr),
+         'ipam_address_in_cidr': (\"ipam_address_in_cidr\" not in item) | ternary ('', item.ipam_address_in_cidr),
+         'ipam_prefix_vrf': (\"ipam_prefix_vrf\" not in item) | ternary (ipam_prefix_vrf, item.ipam_prefix_vrf),
+         'ipam_ip_address_reservation_status_label': (\"ipam_ip_address_reservation_status_label\" not in item) | ternary (ipam_ip_address_reservation_status_label, item.ipam_ip_address_reservation_status_label),
+         'ipam_prefix_reservation_status_label': ((\"ipam_prefix_reservation_status_label\" not in item) and (\"ipam_prefix_in_cidr\" in item)) | ternary (ipam_prefix_reservation_status_label, item.ipam_prefix_reservation_status_label),
+         'ipam_prefix_gateway_role_label': (\"ipam_prefix_gateway_role_label\" not in item) | ternary (ipam_prefix_gateway_role_label, item.ipam_prefix_gateway_role_label),
+         'ipam_tenant_name': (\"ipam_tenant_name\" not in item) | ternary (ipam_tenant_name, item.ipam_tenant_name)}]  }}"
+    # when: 
+    #   - ("ipam_prefix_address_family_label" not in item)
+    #   - ("ipam_prefix_in_cidr" in item)
+    with_items: "{{  host_interfaces  }}"
+
+  - name: Validate if the provided prefix input is in correct network / prefix notation
+    assert:
+      that: (item.ipam_prefix_in_cidr | ipaddr('network') is defined and item.ipam_prefix_in_cidr | ipaddr('prefix') < 32) or
+            (item.ipam_address_in_cidr | ipaddr('network') is defined and item.ipam_address_in_cidr | ipaddr('prefix') < 32)
+      success_msg: |
+        "Input validation passed: 
+        - Provided value is: {{  ('ipam_prefix_in_cidr' in item) | ternary(item.ipam_prefix_in_cidr, item.ipam_address_in_cidr)  }} 
+        - Network address is: {{  ('ipam_prefix_in_cidr' in item) | ternary(item.ipam_prefix_in_cidr | ipaddr('network'), item.ipam_address_in_cidr | ipaddr('network'))  }}
+        - Prefix length is: {{  ('ipam_prefix_in_cidr' in item) | ternary(item.ipam_prefix_in_cidr | ipaddr('prefix'), item.ipam_address_in_cidr | ipaddr('prefix'))  }}"
+      fail_msg: "The provided  {{  ('ipam_prefix_in_cidr' in item) | ternary('ipam_prefix_in_cidr: \"{{  item.ipam_prefix_in_cidr  }}\" is not provided in proper CIDR notation: network / prefix (prefix cannot be host i.e. 32). Ex: 10.0.0.0/24', 'ipam_address_in_cidr: \"{{  item.ipam_address_in_cidr  }}\" is not provided in proper CIDR notation: host / prefix (prefix cannot be host i.e. 32). Ex: 10.1.1.1/24')  }}"
+    with_items: "{{  interface_details  }}"
+
+  - name: Retrieve tenants listing from IPAM
+    uri:
+      url: "{{ ipam_url }}/api/tenancy/tenants/"
+      method: GET
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{ ipam_token }}"
+      body_format: json
+      return_content: yes
+    register: tenant_list_output
+  
+  - name: Compute tenant ID from API output
+    set_fact:
+      interface_details: >
+        {%- set buffer = interface_details %}
+        {%- if buffer[item.0].update({'ipam_tenant_id': ipam_tenant_id}) %}
+        {%- endif %} 
+        {{- buffer -}}
+    vars:
+      # updated: "{{  interface_details[item.0] | combine ({'ipam_tenant_id': tenant_list_output.json|json_query(\"results[?name=='\" + item.1.ipam_tenant_name + \"'].id | [0].to_string(@)\")})  }}"
+      ipam_tenant_id: "{{  tenant_list_output.json|json_query(\"results[?name=='\" + item.1.ipam_tenant_name + \"'].id | [0].to_string(@)\")  }}"
+      #  interface_details: "{{  interface_details | default([]) + [interface_details[item.0] | combine ({'ipam_tenant_id': tenant_list_output.json|json_query(\"results[?name=='\" + item.1.ipam_tenant_name + \"'].id | [0].to_string(@)\")})]  }}"
+    with_indexed_items: "{{  interface_details  }}"
+  
+  - name: Validate if the provided IPAM Tenant name is found in IPAM records
+    assert:
+      that:
+        - ('ipam_tenant_id' in item)
+        - item.ipam_tenant_id != ""
+      success_msg: "ipam_tenant_id validation passed and the Tenant name: {{  item.ipam_tenant_name  }} is resolved to: {{  item.ipam_tenant_id  }}"
+      fail_msg: "The provided ipam_tenant_name: \"{{  item.ipam_tenant_name  }}\" is not found in the IPAM records"
+    with_items: "{{  interface_details  }}"
+  
+  - name: Retrieve choices listing from IPAM prefixes
+    uri:
+      url: "{{  ipam_url  }}/api/ipam/prefixes/"
+      method: OPTIONS
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{  ipam_token  }}"
+      body_format: json
+      return_content: yes
+    register: prefixes_choices_list_output
+  
+  - name: Retrieve choices listing from IPAM IP addresses
+    uri:
+      url: "{{  ipam_url  }}/api/ipam/ip-addresses/"
+      method: OPTIONS
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{  ipam_token  }}"
+      body_format: json
+      return_content: yes
+    register: ip_addresses_choices_list_output
+  
+  - name: Compute required options value from choices pre-defined in IPAM
+    set_fact:
+       interface_details: >
+            {%- set buffer = interface_details %}
+            {%- set _ = buffer[item.0].update({'ipam_prefix_gateway_role_value': ipam_prefix_gateway_role_value}) %}
+            {%- set _ =  buffer[item.0].update({'ipam_prefix_reservation_status_value': ipam_prefix_reservation_status_value}) %}
+            {%- set _ =  buffer[item.0].update({'ipam_ip_address_activation_status_value': ipam_ip_address_activation_status_value}) %}
+            {%- set _ =  buffer[item.0].update({'ipam_ip_address_reservation_status_value': ipam_ip_address_reservation_status_value}) %}
+            {{- buffer -}}
+    vars:
+      ipam_prefix_gateway_role_key: "actions.POST.role.choices[?display_name=='{{  item.1.ipam_prefix_gateway_role_label  }}'].value | [0].to_string(@)"
+      # ipam_prefix_address_family_key: "\"prefix:family\"[?label=='{{  item.1.ipam_prefix_address_family_label  }}'].value | [0].to_string(@)"
+      # ipam_ip_address_family_key: "\"ip-address:family\"[?label=='{{  item.1.ipam_ip_address_family_label  }}'].value | [0].to_string(@)"
+      ipam_prefix_reservation_status_key: "actions.POST.status.choices[?display_name=='{{  item.1.ipam_prefix_reservation_status_label  }}'].value | [0]"
+      ipam_ip_address_activation_status_key: "actions.POST.status.choices[?display_name=='{{  ipam_ip_address_activation_status_label  }}'].value | [0]"
+      ipam_ip_address_reservation_status_key: "actions.POST.status.choices[?display_name=='{{  item.1.ipam_ip_address_reservation_status_label  }}'].value | [0]"
+      ipam_prefix_gateway_role_value: "{{  ip_addresses_choices_list_output.json|json_query(ipam_prefix_gateway_role_key)  }}"
+      # ipam_prefix_address_family_value: "{{  choices_list_output.json|json_query(ipam_prefix_address_family_key)  }}"
+      # ipam_ip_address_family_value: "{{  choices_list_output.json|json_query(ipam_ip_address_family_key)  }}"
+      ipam_prefix_reservation_status_value: "{{  prefixes_choices_list_output.json|json_query(ipam_prefix_reservation_status_key)  }}"
+      ipam_ip_address_activation_status_value: "{{  ip_addresses_choices_list_output.json|json_query(ipam_ip_address_activation_status_key)  }}"
+      ipam_ip_address_reservation_status_value: "{{  ip_addresses_choices_list_output.json|json_query(ipam_ip_address_reservation_status_key)  }}"
+    with_indexed_items: "{{  interface_details  }}"
+
+  - name: Validate if all the Options value computed from choices pre-defined in IPAM are resolved accordingly
+    assert:
+      that:
+        - item.ipam_prefix_gateway_role_value != ""
+        - item.ipam_prefix_reservation_status_value != ""
+        - item.ipam_ip_address_activation_status_value != ""
+        - item.ipam_ip_address_reservation_status_value != ""
+      success_msg: |
+        "All the Options value validation passed with resolution shown below:
+        ipam_prefix_gateway_role_label: {{  item.ipam_prefix_gateway_role_label  }} resolved to: {{  item.ipam_prefix_gateway_role_value  }}
+        ipam_prefix_reservation_status_label: {{  item.ipam_prefix_reservation_status_label  }} resolved to: {{  item.ipam_prefix_reservation_status_value  }}
+        ipam_ip_address_activation_status_label: {{  ipam_ip_address_activation_status_label  }} resolved to: {{  item.ipam_ip_address_activation_status_value  }}
+        ipam_ip_address_reservation_status_label: {{  item.ipam_ip_address_reservation_status_label  }} resolved to: {{  item.ipam_ip_address_reservation_status_value  }}"
+      fail_msg: |
+        "The Options value validation failed with resolution shown below:
+        ipam_prefix_gateway_role_label: {{  item.ipam_prefix_gateway_role_label  }} resolved to: {{  item.ipam_prefix_gateway_role_value  }}
+        ipam_prefix_reservation_status_label: {{  item.ipam_prefix_reservation_status_label  }} resolved to: {{  item.ipam_prefix_reservation_status_value  }}
+        ipam_ip_address_activation_status_label: {{  ipam_ip_address_activation_status_label  }} resolved to: {{  item.ipam_ip_address_activation_status_value  }}
+        ipam_ip_address_reservation_status_label: {{  item.ipam_ip_address_reservation_status_label  }} resolved to: {{  item.ipam_ip_address_reservation_status_value  }}"
+    with_items: "{{  interface_details  }}"
+  
+  - name: Retrieve VRF listing from IPAM
+    uri:
+      url: "{{  ipam_url  }}/api/ipam/vrfs/"
+      method: GET
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Token {{  ipam_token  }}"
+      body_format: json
+      return_content: yes
+    register: vrf_list_output
+
+  - name: Compute VRF ID from API output
+    set_fact:
+      interface_details: >
+        {%- set buffer = interface_details %}
+        {%- set _ = buffer[item.0].update({'ipam_vrf_id': ipam_vrf_id}) %}
+        {{- buffer -}}
+    vars:
+       ipam_vrf_id: "{{  vrf_list_output.json|json_query(\"results[?name=='\" + item.1.ipam_prefix_vrf + \"'].id | [0].to_string(@)\") }}"
+    with_indexed_items: "{{  interface_details  }}"
+  
+  - name: Validate if VRF ID is defined properly when VRF specific detail is provided
+    assert:
+      that:
+        - ('ipam_vrf_id' in item)
+        - item.ipam_vrf_id != ""
+      success_msg: "ipam_vrf_id validation passed and the VRF name: {{  item.ipam_prefix_vrf  }} is resolved to ID: {{  item.ipam_vrf_id  }}"
+      fail_msg: "The ipam_vrf_id is undefined OR equal to empty string. Please ensure the provided VRF name: {{  item.ipam_prefix_vrf  }} is correct and has been defined in IPAM accordingly"
+    with_items: "{{  interface_details  }}"
+
+  - name: Execute tasks of obtaining IP address based on prefix address defined 
+    import_tasks:
+      file: multiple.ip.by.host.interfaces.with.prefix.yml

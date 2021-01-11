@@ -1,0 +1,4 @@
+---
+ipam_url: "http://netbox-dev.nttapdemo.com:8080"
+ipam_token: "{{ vault_ipam_token }}"
+ipam_record_limit: "1000"
