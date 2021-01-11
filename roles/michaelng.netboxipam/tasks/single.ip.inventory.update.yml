@@ -87,28 +87,28 @@
       return_content: yes
       status_code: 200
   
-  - name: Update dB host record for Windows platform
-    add_host:
-      # name: "{{ inventory_hostname }}.{{ windows_domain }}" 
-      name: "{{ item }}.{{ hostvars[item].windows_domain }}" 
-      inventory_dir: "{{ hostvars[item].inventory_dir }}"
-      groups: "mssqlservers"
-      ansible_host: "{{  hostvars[item].ipam_address }}"
-      app_type: "Microsoft SQL Server"
-    when: 
-      - hostvars[item].host_role == "db-tier"
-      - hostvars[item].os_platform == "Windows"
-    with_items: "{{ ansible_play_hosts }}"
+  # - name: Update dB host record for Windows platform
+  #   add_host:
+  #     # name: "{{ inventory_hostname }}.{{ windows_domain }}" 
+  #     name: "{{ item }}.{{ hostvars[item].windows_domain }}" 
+  #     inventory_dir: "{{ hostvars[item].inventory_dir }}"
+  #     groups: "mssqlservers"
+  #     ansible_host: "{{  hostvars[item].ipam_address }}"
+  #     app_type: "Microsoft SQL Server"
+  #   when: 
+  #     - hostvars[item].host_role == "db-tier"
+  #     - hostvars[item].os_platform == "Windows"
+  #   with_items: "{{ ansible_play_hosts }}"
   
-  - name: Update dB host record for Linux platform
-    add_host:
-      # name: "{{ inventory_hostname }}"
-      name: "{{ item }}"
-      inventory_dir: "{{  hostvars[item].inventory_dir  }}" 
-      groups: "mysqlservers"
-      ansible_host: "{{  hostvars[item].ipam_address }}"
-      app_type: "MySQL"
-    when: 
-      - hostvars[item].host_role == "db-tier"
-      - hostvars[item].os_platform == "Linux" 
-    with_items: "{{ ansible_play_hosts }}"
+  # - name: Update dB host record for Linux platform
+  #   add_host:
+  #     # name: "{{ inventory_hostname }}"
+  #     name: "{{ item }}"
+  #     inventory_dir: "{{  hostvars[item].inventory_dir  }}" 
+  #     groups: "mysqlservers"
+  #     ansible_host: "{{  hostvars[item].ipam_address }}"
+  #     app_type: "MySQL"
+  #   when: 
+  #     - hostvars[item].host_role == "db-tier"
+  #     - hostvars[item].os_platform == "Linux" 
+  #   with_items: "{{ ansible_play_hosts }}"

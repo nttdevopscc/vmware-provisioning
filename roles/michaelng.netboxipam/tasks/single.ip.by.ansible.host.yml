@@ -80,7 +80,7 @@
       body:
         address: "{{ ipam_cidr_adress }}"
         status: "{{ ipam_ip_address_reservation_status_value }}"
-        description: "Reserved for host: {{ inventory_hostname }} and its interface: {{  host_interface_name  }}"
+        description: "Reserved for host: {{ vmware_hostname }} and its interface: {{  host_interface_name  }}"
       body_format: json
       return_content: yes
       status_code: 200
